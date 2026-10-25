@@ -70,38 +70,32 @@ C changed are compiled again.
   locals, `rc_call` lost its TLS reads and calls copy only the registers that need it
   (`ps -o cputime=` over 30 s, 2026-10-25: 344% of one core against 402% at the 1st Floor
   Sickroom lamp, about 1,283 draws a frame; before the register copies, 2026-10-24: 387% against
-  409% in the Hunter's Dream, 735 draws, one run each). R3 continues: make it cheaper still. Measure at
-  the Sickroom while working, the Dream once before a PR (copies of the two saves are in the
-  runtime's `out/r3-saves/`; `SAVE_FROM=DIR` goes in the environment: `tools/test_run.sh` does not
-  read it from its `ENV=VALUE` arguments, and without it copies the player's current save),
-  alternating with the translator; `BB_PROBE=` runs another build of `bb-probe` (keep the name)
-  for A/B runs without rebuilding. The FMOD mixer was the largest difference; `rc_call` is now a
-  leaf (4 points at the Sickroom); copying only the registers that need it around calls took 29
-  (the generator's register sync: markers filled in from two analyses of the generated text).
-  Tried without a gain (2026-10-25): a cache at each indirect call site (the entry of the
-  function it called last, called without `rc_call`'s lookup) took 7.8 of 11.4 million calls a
-  second off `rc_call`, but CPU time stayed the same (343% against 344%) and the code grew 5.6%:
-  what `rc_call` costs in a `sample` is the indirect jump, not the lookup, so the table's size is
-  unlikely to matter either. Guest loads are already `ldapr`, as in the translator; what x86
-  ordering still costs is the barriers around vector loads and stores (`dmb ishld`, `dmb ish`:
-  333 in 3,919 instructions of one of the busiest functions). The ceiling of relaxing ordering,
-  measured with a library without any (2026-10-25, unsafe, local branch `r3-order-ceiling`):
-  311% against the translator's 407% at the Sickroom (3 runs each), about 33 points under the
-  register-sync library's 344%. Plain C accesses never reached the first frame (the compiler keeps
-  a spin-wait's load in a register), so a relaxed library uses relaxed atomics. Vector accesses
-  as two 8-byte `ldapr`/`stlr` instead of a barrier (local branch `r3-vec-order`) did not pay:
-  348% against 400% (the same share of the translator's time), code 4.6% larger. So the cost is in
-  the ordinary ordered accesses, not the vector barriers: `ldapr`/`stlr` take no offset on the M1
-  target, one `add` each, which the library without ordering (20% fewer instructions) did not
-  need. Candidates, measure each: `ldapur`/`stlur` (offsets; clang uses them for `-mcpu=apple-m2`
-  and later, not for the M1); kills for vector
-  registers (only general-purpose ones end a register's liveness now); acquire/release on every
-  stack access (a safety case first); the
-  remaining calls into the translator (wide-character libc functions; check the PS4's `wchar_t`
-  size first). Code layout showed no cost so far: with the flat table the full library takes
-  what a 47k-function one did before it. `sample` gets about 2 samples a thread from a library
-  with its debug map: profile a copy made with `strip -S` and `codesign -s - -f`, built from the
-  functions one scene runs (a translator run's `BB_JIT_MAP`, mapped to `functions.tsv`).
+  409% in the Hunter's Dream, 735 draws, one run each). R3 (2026-10-25): its goal is met and closing it is proposed to the
+  maintainer: 99.1% of instructions in C, and the library about 14% under the translator's CPU
+  time at the same frame rate. What took it there: vector registers in locals (the FMOD mixer),
+  `rc_call` as a leaf (4 points at the Sickroom), and copying only the registers that need it
+  around calls (29 points; the generator's register sync: markers filled in from two analyses of
+  the generated text). Tried after that without a measurable gain (local branches, Sickroom, 3
+  runs each against the translator): a cache at each indirect call site (`r3-call-cache`: 7.8 of
+  11.4 million calls a second off `rc_call`, the same CPU time, code +5.6%; `rc_call` costs its
+  indirect jump, not the lookup); vector accesses as two 8-byte `ldapr`/`stlr` instead of a
+  barrier (`r3-vec-order`: 348% against 400%, code +4.6%); `ldapur`/`stlur` with their offsets
+  (`-mcpu=apple-m2` and later, not the M1: 341% against 397%, code −3%). A library with no x86
+  ordering at all (`r3-order-ceiling`, unsafe; relaxed atomics, since plain C accesses hung
+  before the first frame) took 311% against 407%: about 33 points, the ceiling of relaxing
+  ordering. Neither the vector barriers nor the `add`s explain it: it is the ordering of the
+  ordinary accesses itself. What is left, optional: plain accesses to a function's own frame when
+  it never computes an address in its stack (no `lea` from `rsp`/`rbp`, `rsp` copied nowhere but
+  `rbp`), so no other thread can reach that frame; it needs the generator's analysis, a safety case
+  and a long play session (the maintainer's conditions), and the frame rate is bound by rendering.
+  The library runs about 0.5 FPS under the translator at the Sickroom in every round
+  (38.0 against 38.6), unexplained so far. To measure: the Sickroom, alternating with the
+  translator (copies of the Sickroom and Dream saves are in the runtime's `out/r3-saves/`;
+  `SAVE_FROM=DIR` goes in the environment: `tools/test_run.sh` does not read it from its
+  `ENV=VALUE` arguments, and without it copies the player's current save); `BB_PROBE=` runs
+  another build of `bb-probe` (keep the name) for A/B runs without rebuilding. `sample` gets about
+  2 samples a thread from a library with its debug map: profile a copy made with `strip -S` and
+  `codesign -s - -f`.
 - Data from earlier sessions, in `out/recomp/` of the user's clone (game-derived, never commit):
   `records_r3/` (50 recorded calls of each of the 60 busiest functions at the Sickroom lamp;
   2,944 of 3,018 match, the rest also fail with the original), `librecomp_main_a8b96c3.dylib`
