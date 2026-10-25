@@ -88,8 +88,13 @@ C changed are compiled again.
   measured with a library without any (2026-10-25, unsafe, local branch `r3-order-ceiling`):
   311% against the translator's 407% at the Sickroom (3 runs each), about 33 points under the
   register-sync library's 344%. Plain C accesses never reached the first frame (the compiler keeps
-  a spin-wait's load in a register), so a relaxed library uses relaxed atomics. Candidates, measure
-  each: vector accesses as two 8-byte `ldapr`/`stlr` (x86's guarantees, no `dmb`); kills for vector
+  a spin-wait's load in a register), so a relaxed library uses relaxed atomics. Vector accesses
+  as two 8-byte `ldapr`/`stlr` instead of a barrier (local branch `r3-vec-order`) did not pay:
+  348% against 400% (the same share of the translator's time), code 4.6% larger. So the cost is in
+  the ordinary ordered accesses, not the vector barriers: `ldapr`/`stlr` take no offset on the M1
+  target, one `add` each, which the library without ordering (20% fewer instructions) did not
+  need. Candidates, measure each: `ldapur`/`stlur` (offsets; clang uses them for `-mcpu=apple-m2`
+  and later, not for the M1); kills for vector
   registers (only general-purpose ones end a register's liveness now); acquire/release on every
   stack access (a safety case first); the
   remaining calls into the translator (wide-character libc functions; check the PS4's `wchar_t`
